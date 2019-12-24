@@ -15,10 +15,15 @@ class Game:
         self.surface = surface
         self.state_stack = []
 
-        self.state_stack.append(Chase(self.surface))
-        self.state_stack.append(Editor(self.surface))
-
         self.assets = AssetManager("assets")
+
+        entry_level = "level_0"
+
+        self.state_stack.append(MainMenu(self.assets, self.surface, self.state_stack))
+        
+        #self.state_stack.append(Chase(self.surface, level_name=entry_level))
+        #self.state_stack.append(Editor(self.surface))
+        #self.state_stack[-1].load_by_name(entry_level)
 
     def loop(self):
 
@@ -27,13 +32,15 @@ class Game:
 
         while True:
 
+            if len(self.state_stack) == 0:
+                break
             state = self.state_stack[-1]
             
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     quit()
-                state.handle_event(event, assets=self.assets)
+                state.handle_event(event, state_stack=self.state_stack, assets=self.assets)
 
             state.update(delta=dt, state_stack=self.state_stack, assets=self.assets)
 
@@ -45,10 +52,11 @@ class Game:
 
 if __name__ == "__main__":
 
+    pygame.mixer.pre_init(44100, -16, 1, 512)
     pygame.init()
 
     display = pygame.display.set_mode((800, 600))
 
     game = Game(display)
-    log.debug(game.assets.images)
     game.loop()
+    pygame.quit()

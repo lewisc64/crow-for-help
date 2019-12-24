@@ -12,47 +12,71 @@ class State:
     def __init__(self):
         pass
 
-    def update(self):
+    def update(self, *args, **kwargs):
         pass
 
-    def handle_event(self, event):
+    def handle_event(self, event, *args, **kwargs):
         pass
 
-    def draw(self, surface):
+    def draw(self, surface, *args, **kwargs):
         pass
 
 class Image:
 
-    def __init__(self, x=0, y=0, image_key="", angle=0):
+    def __init__(self, x=0, y=0, image_key="", angle=0, scale=1):
         self.x = x
         self.y = y
+        self.z = 1
         self.angle = angle
+        self.scale = scale
         self.image_key = image_key
 
     def dump(self):
         return {
             "x": self.x,
             "y": self.y,
+            "z": self.z,
             "angle": self.angle,
+            "scale": self.scale,
             "image_key": self.image_key,
         }
 
     def get_image(self, assets):
         return assets.images[self.image_key]
 
-    def move_to(self, x, y):
+    def move_to(self, x, y, z=None):
         self.x = x
         self.y = y
+        if z is not None:
+            self.z = z
 
     def load(self, obj):
         self.x = obj["x"]
         self.y = obj["y"]
+        self.z = obj["z"]
+        self.scale = obj["scale"]
         self.angle = obj["angle"]
         self.image_key = obj["image_key"]
 
     def draw(self, surface, camera, assets, **kwargs):
-        image = pygame.transform.rotate(self.get_image(assets), self.angle * (180 / math.pi))
-        surface.blit(image, camera.shift_point((self.x - image.get_width() / 2, self.y - image.get_height() / 2)))
+        image = self.get_image(assets)
+        if self.angle != 0:
+            image = pygame.transform.rotate(image, self.angle * (180 / math.pi))
+
+        width = image.get_width() * self.scale
+        height = image.get_height() * self.scale
+
+        if self.scale != 1:
+            image = pygame.transform.scale(image, (width, height))
+
+        #if self.z > 1:
+        #    image = image.copy()
+        #    mask = pygame.Surface(image.get_size())
+        #    mask.fill([(1 - (1 / self.z)) * 255 for x in range(3)])
+        #    image.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+            
+        
+        surface.blit(image, camera.shift_point((self.x - width / 2, self.y - height / 2, self.z)))
 
 class Camera:
 
@@ -75,7 +99,16 @@ class Camera:
         self.transition_speed = 15
 
     def shift_point(self, point):
-        return [int(point[0] - self.x + self.width / 2), int(point[1] - self.y + self.height / 2)]
+        x = int(point[0] - self.x + self.width / 2)
+        y = int(point[1] - self.y + self.height / 2)
+        
+        if len(point) == 3:
+            z = point[2]
+            f = 1 - (1 / z)
+            x += (self.width / 2 - x) * f
+            #y += (self.height / 2 - y) * f
+
+        return (x, y)
 
     def shift_point_to_camera(self, point):
         return [int(point[0] + self.x - self.width / 2), int(point[1] + self.y - self.height / 2)]
@@ -89,15 +122,28 @@ class Camera:
 
 class Base(State):
 
-    def __init__(self, surface):
+    def __init__(self, surface, scale=1):
+        
+        self.scale = scale
+        
         self.surface = surface
 
-        self.camera = Camera(*surface.get_size())
+        self.dimensions = [x * self.scale for x in surface.get_size()]
+        
+        self.background_layer = pygame.Surface(self.dimensions)
+        self.foreground_layer = pygame.Surface(self.dimensions, flags=pygame.SRCALPHA)
+
+        self.camera = Camera(*self.dimensions)
         
         self.entities = []
         self.terrain = []
         self.images_background = []
         self.images_foreground = []
+
+        self.layer_separator = pygame.Surface(self.surface.get_size(), flags=pygame.SRCALPHA)
+        self.layer_separator.fill((0, 0, 0, 32))
+
+        self.level_name = None
 
     def dump(self):
         return {
@@ -120,7 +166,9 @@ class Base(State):
             self.entities.append(entity)
 
         for data in obj["terrain"]:
-            pass
+            collider = Collider()
+            collider.load(data)
+            self.terrain.append(collider)            
 
         for data in obj["images_background"]:
             image = Image()
@@ -133,15 +181,20 @@ class Base(State):
             self.images_foreground.append(image)
 
     def load_by_name(self, name):
-        log.info(f"loading 'levels/{name}.json'")
-        file = open(f"levels/{name}.json", "r")
-        self.load(json.load(file))
-        file.close()
+        try:
+            log.info(f"loading 'levels/{name}.json'")
+            file = open(f"levels/{name}.json", "r")
+            self.load(json.load(file))
+            file.close()
+            self.level_name = name
+        except FileNotFoundError:
+            log.error(f"level with name '{name}' not found")
 
     def save_as(self, name):
         log.info(f"saving 'levels/{name}.json'")
+        data = self.dump()
         file = open(f"levels/{name}.json", "w")
-        json.dump(self.dump(), file)
+        json.dump(data, file)
         file.close()
 
     def update(self, **kwargs):
@@ -152,13 +205,19 @@ class Base(State):
 
     def draw(self, surface, **kwargs):
 
-        surface.fill((180, 200, 255))
+        self.background_layer.fill((200, 200, 255))
+        self.foreground_layer.fill((0, 0, 0, 0))
 
         for image in self.images_background:
-            image.draw(self.surface, self.camera, **kwargs)
-        
+            image.draw(self.background_layer, self.camera, **kwargs)
+
         for entity in self.entities:
-            entity.draw(self.surface, self.camera, **kwargs)
+            entity.draw(self.foreground_layer, self.camera, **kwargs)
 
         for image in self.images_foreground:
-            image.draw(self.surface, self.camera, **kwargs)
+            image.draw(self.foreground_layer, self.camera, **kwargs)
+
+        dest_size = self.surface.get_size()
+        surface.blit(pygame.transform.scale(self.background_layer, dest_size), (0, 0))
+        #surface.blit(self.layer_separator, (0, 0))
+        surface.blit(pygame.transform.scale(self.foreground_layer, dest_size), (0, 0))

@@ -1,6 +1,9 @@
 import pygame
 import math
 import random
+import logging
+
+log = logging.getLogger(__name__)
 
 GRAVITY = 0.5
 
@@ -28,21 +31,54 @@ def rotate_point(x, y, cx, cy, rel_angle):
 
     return cx + mag * math.cos(angle), cy + mag * math.sin(angle)
 
+def collide_rect(r1, r2):
+    return r1[0] + r1[2] >= r2[0] and r1[0] <= r2[0] + r2[2] and r1[1] + r1[3] >= r2[1] and r1[1] <= r2[1] + r2[3]
+
 class Collider:
 
-    def __init__(self, x1, y1, x2, y2, normal_angle):
+    def __init__(self, x1=0, y1=0, x2=0, y2=0, normal_angle=None):
         self.x1 = x1
         self.y1 = y1
         self.x2 = x2
         self.y2 = y2
-        self.normal_angle = normal_angle % (2 * math.pi)
-        self.normal_x = math.cos(normal_angle)
-        self.normal_y = math.sin(normal_angle)
+
+        if normal_angle is None:
+            self.recalculate_normal()
+        else:
+            self.normal_angle = normal_angle % (2 * math.pi)
+            self.normal_x = math.cos(normal_angle)
+            self.normal_y = math.sin(normal_angle)
+            
         self.collide_dist = 10
         self.friction = 0.1
         self.slide = False
         self.wall_tolerance = math.pi / 8
         self.wall_extension = 3
+
+    def dump(self):
+        return {
+            "x1": self.x1,
+            "x2": self.x2,
+            "y1": self.y1,
+            "y2": self.y2,
+            "normal_angle": self.normal_angle,
+            "normal_x": self.normal_x,
+            "normal_y": self.normal_y,
+        }
+
+    def load(self, obj):
+        self.x1 = obj["x1"]
+        self.x2 = obj["x2"]
+        self.y1 = obj["y1"]
+        self.y2 = obj["y2"]
+        self.normal_angle = obj["normal_angle"]
+        self.normal_x = obj["normal_x"]
+        self.normal_y = obj["normal_y"]
+
+    def recalculate_normal(self):
+        self.normal_angle = (math.atan2(self.y1 - self.y2, self.x1 - self.x2) + math.pi / 2) % (2 * math.pi)
+        self.normal_x = math.cos(self.normal_angle)
+        self.normal_y = math.sin(self.normal_angle)
 
     def __get_y_level(self, x):
         ratio = (x - self.x1) / (self.x2 - self.x1)
@@ -87,7 +123,7 @@ class Collider:
         self.normal_x, self.normal_y = rotate_point(self.normal_x, self.normal_y, 0, 0, angle)
         self.normal_angle = (self.normal_angle + angle) % (2 * math.pi)
     
-    def collide(self, entity):
+    def collide(self, entity, delta):
         x, y = entity.x, entity.y
 
         nx_wall = self.normal_angle >= math.pi - self.wall_tolerance and self.normal_angle <= math.pi + self.wall_tolerance
@@ -98,7 +134,7 @@ class Collider:
             if not self.within_y_bounds(y - self.wall_extension) and not self.within_y_bounds(y + self.wall_extension):
                 return False
 
-            collide_dist = max(abs(entity.x_velocity), self.collide_dist)
+            collide_dist = max(abs(entity.x_velocity * delta), self.collide_dist)
 
             collider_x = self.__get_x_level(y)
 
@@ -111,11 +147,13 @@ class Collider:
                 entity.last_collision = self
                 entity.x_velocity = 0
 
+                return True
+
         else:
             if not self.within_x_bounds(x):
                 return False
 
-            collide_dist = max(abs(entity.y_velocity), self.collide_dist)
+            collide_dist = max(abs(entity.y_velocity * delta), self.collide_dist)
 
             collider_y = self.__get_y_level(x)
                 
@@ -138,6 +176,7 @@ class Collider:
                     entity.y_velocity = 0
                     entity.last_collision = self
                     entity.last_floor_collision = self
+                    entity.air_time = 0
                     return True
         return False
 
@@ -174,6 +213,8 @@ class Entity:
         
         self.last_collision = None
         self.last_floor_collision = None
+        self.air_time = 0
+        self.lifetime = 0
 
         self.collide_with_entities = False
         self.collide_with_terrain = True
@@ -188,6 +229,12 @@ class Entity:
             collider.wall_extension = 0
 
         self.held_keys = []
+
+    def kill(self, **kwargs):
+        pass
+
+    def get_rect(self):
+        return (self.x - self.width / 2, self.y - self.height, self.width, self.height)
 
     def move_to(self, x, y):
         self.move_rel(x - self.x, y - self.y)
@@ -206,11 +253,14 @@ class Entity:
         for collider in self.colliders:
             collider.rotate(angle, x, y)
 
-    def collide(self, entity):
+    def collide(self, entity, delta):
+        collision = False
         for collider in self.colliders:
-            collider.collide(entity)
+            result = collider.collide(entity, delta)
+            collision = collision or result
+        return collision
 
-    def handle_event(self, event):
+    def handle_event(self, event, **kwargs):
         if event.type == pygame.KEYDOWN:
             self.held_keys.append(event.key)
         elif event.type == pygame.KEYUP:
@@ -219,50 +269,9 @@ class Entity:
 
     def update(self, delta, **kwargs):
         self.move_rel(self.x_velocity * delta, self.y_velocity * delta)
+        self.lifetime += 1
 
     def draw(self, surface, camera, **kwargs):
         pygame.draw.line(surface, (255, 0, 255), camera.shift_point((self.x, self.y)), camera.shift_point((self.x, self.y - self.height)), self.width)
         for collider in self.colliders:
             collider.debug_draw(surface, camera)
-
-@entity
-class Player(Entity):
-
-    NAME = "player"
-
-    def __init__(self, x=0, y=0, width=16, height=16):
-        super().__init__(x, y, width, height)
-        self.upthrust = -GRAVITY * 3
-        self.air_acc = 0.3
-        self.ground_acc = 0.5
-
-    def dump(self):
-        return {
-            "name": Player.NAME,
-            "x": self.x,
-            "y": self.y,
-        }
-
-    def load(self, obj):
-        self.move_to(obj["x"], obj["y"])
-
-    def get_rect(self):
-        return (self.x, self.y, self.width, self.height)
-
-    def update(self, **kwargs):
-        super().update(**kwargs)
-
-        self.y_velocity += GRAVITY
-
-        if pygame.K_SPACE in self.held_keys:
-            self.y_velocity += self.upthrust
-        if pygame.K_a in self.held_keys:
-            self.x_velocity -= self.air_acc
-        if pygame.K_d in self.held_keys:
-            self.x_velocity += self.air_acc
-
-    def handle_event(self, event, **kwargs):
-        super().handle_event(event)
-
-    def draw(self, surface, camera, **kwargs):
-        super().draw(surface, camera, **kwargs)
