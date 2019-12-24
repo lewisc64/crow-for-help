@@ -4,6 +4,7 @@ import logging
 
 from .state import *
 from .chase import *
+from .controls import *
 from .pgui import *
 
 log = logging.getLogger(__name__)
@@ -16,7 +17,8 @@ class MainMenu(State):
         
         self.gui = Handler()
         self.gui.add_control(Button("Play", 10, 10, 100, 20, lambda: self.play(surface, state_stack)))
-        self.gui.add_control(Button("Exit", 10, 40, 100, 20, lambda: self.exit(state_stack)))
+        self.gui.add_control(Button("Controls", 10, 40, 100, 20, lambda: state_stack.append(Controls(state_stack))))
+        self.gui.add_control(Button("Exit", 10, 70, 100, 20, lambda: self.exit(state_stack)))
 
     def play(self, surface, stack):
         stack.append(Chase(surface, level_name="level_0"))
@@ -28,10 +30,6 @@ class MainMenu(State):
         assets.play_music("menu", volume=0.3)
 
     def handle_event(self, event, state_stack, **kwargs):
-        if event.type == pygame.KEYUP:
-            if event.key == pygame.K_ESCAPE:
-                state_stack.pop()
-                return
         self.gui.handle(event)
 
     def draw(self, surface, assets, *args, **kwargs):

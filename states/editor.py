@@ -105,6 +105,8 @@ class Editor(Base):
 
             elif event.key == pygame.K_0:
                 self.get_all_things_at((self.mouse_x, self.mouse_y), lambda l, t: l.insert(0, l.pop(l.index(t))))
+            elif event.key == pygame.K_9:
+                self.get_all_things_at((self.mouse_x, self.mouse_y), lambda l, t: l.append(l.pop(l.index(t))))
                 
         elif event.type == pygame.MOUSEMOTION:
             self.mouse_x, self.mouse_y = self.camera.shift_point_to_camera(event.pos)

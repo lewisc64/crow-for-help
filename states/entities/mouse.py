@@ -9,6 +9,7 @@ class Mouse(Entity):
 
     def __init__(self, x=0, y=0, width=16, height=16):
         super().__init__(x, y, width, height)
+        # 2.5
         self.speed = 2.5
 
     def dump(self):

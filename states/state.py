@@ -189,6 +189,8 @@ class Base(State):
             self.level_name = name
         except FileNotFoundError:
             log.error(f"level with name '{name}' not found")
+            log.info(f"loading 'win' instead! this isn't hacky!")
+            self.load_by_name("win")
 
     def save_as(self, name):
         log.info(f"saving 'levels/{name}.json'")

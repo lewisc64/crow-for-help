@@ -13,14 +13,12 @@ class Game:
 
     def __init__(self, surface):
         self.surface = surface
-        self.state_stack = []
 
         self.assets = AssetManager("assets")
-
-        entry_level = "level_0"
-
+        self.state_stack = []
         self.state_stack.append(MainMenu(self.assets, self.surface, self.state_stack))
-        
+
+        #entry_level = "win"
         #self.state_stack.append(Chase(self.surface, level_name=entry_level))
         #self.state_stack.append(Editor(self.surface))
         #self.state_stack[-1].load_by_name(entry_level)
@@ -54,8 +52,9 @@ if __name__ == "__main__":
 
     pygame.mixer.pre_init(44100, -16, 1, 512)
     pygame.init()
-
+    
     display = pygame.display.set_mode((800, 600))
+    pygame.display.set_caption("Crow for Help")
 
     game = Game(display)
     game.loop()
